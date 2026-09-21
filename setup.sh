@@ -17,7 +17,7 @@ if [ -d "$PROJECT_DIR/.git" ]; then
     cd "$PROJECT_DIR" && git pull
 else
     # Replace the URL below with your actual GitHub repo URL after pushing
-    git clone https://github.com/YOUR_USERNAME/mcp_aws_news.git "$PROJECT_DIR"
+    git clone https://github.com/Stargazaar/mcp_aws_news.git "$PROJECT_DIR"
     cd "$PROJECT_DIR"
 fi
 

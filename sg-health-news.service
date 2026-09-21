@@ -1,6 +1,6 @@
 [Unit]
 Description=SG Healthcare News MCP Server
-Documentation=https://github.com/YOUR_USERNAME/mcp_aws_news
+Documentation=https://github.com/Stargazaar/mcp_aws_news
 After=network-online.target
 Wants=network-online.target
 

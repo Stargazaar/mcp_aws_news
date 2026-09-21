@@ -58,7 +58,7 @@ mcp_aws_news/
 2. Push this project:
    ```powershell
    cd "C:\Users\limqi\Desktop\Python\Projects\mcp_aws_news"
-   git remote add origin https://github.com/YOUR_USERNAME/mcp_aws_news.git
+   git remote add origin https://github.com/Stargazaar/mcp_aws_news.git
    git push -u origin main
    ```
 3. In `setup.sh`, replace `YOUR_USERNAME` with your GitHub username
