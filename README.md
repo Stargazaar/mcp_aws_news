@@ -100,11 +100,12 @@ Click **Edit** next to Network settings, then add these inbound rules:
 
 | Type | Port | Source | Purpose |
 |---|---|---|---|
-| SSH | 22 | My IP | SSH access from your machine only |
+| SSH | 22 | 0.0.0.0/0 | SSH from any network (key file is the protection) |
 | Custom TCP | 8000 | 0.0.0.0/0 | MCP server (Claude Desktop connects here) |
 
-> **Security note**: Port 8000 is open to the internet. For a production server you
-> would restrict it to your IP or add authentication. For this learning project it is fine.
+> **Security note**: Both ports are open to the internet. SSH is protected by your `.pem`
+> key file — anyone without it cannot connect. Port 8000 has no authentication, which is
+> fine for a learning project. Do not store secrets or sensitive data on this instance.
 
 ### 2.5 Launch
 
