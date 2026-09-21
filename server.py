@@ -180,6 +180,16 @@ def clear_cache() -> str:
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
+
+    # Bind to all interfaces so Claude Desktop can reach us over the public internet.
+    # Default is 127.0.0.1 (localhost only) which blocks external connections.
+    mcp.settings.host = "0.0.0.0"
+    mcp.settings.port = port
+
+    # DNS rebinding protection defaults to localhost-only allowed hosts.
+    # Disable it so Claude Desktop connecting via EC2 public IP is accepted.
+    mcp.settings.transport_security.enable_dns_rebinding_protection = False
+
     print(f"Starting SG Health News MCP server on port {port} ...")
-    print(f"Claude Desktop SSE URL: http://0.0.0.0:{port}/sse")
-    mcp.run(transport="sse", host="0.0.0.0", port=port)
+    print(f"Claude Desktop SSE URL: http://<EC2_PUBLIC_IP>:{port}/sse")
+    mcp.run(transport="sse")
