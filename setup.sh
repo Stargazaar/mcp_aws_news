@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # setup.sh
-# One-shot bootstrap script for Ubuntu 22.04 EC2 instance.
+# One-shot bootstrap script for Ubuntu 24.04 LTS EC2 instance.
 # Run once after SSH-ing into the instance:
 #   chmod +x setup.sh && ./setup.sh
 set -euo pipefail
@@ -10,7 +10,7 @@ SERVICE_NAME="sg-health-news"
 
 echo "==> [1/6] Updating system packages..."
 sudo apt-get update -y -q
-sudo apt-get install -y -q python3.11 python3.11-venv python3-pip git
+sudo apt-get install -y -q python3 python3-venv python3-pip git
 
 echo "==> [2/6] Cloning / updating project..."
 if [ -d "$PROJECT_DIR/.git" ]; then
@@ -22,7 +22,7 @@ else
 fi
 
 echo "==> [3/6] Creating Python virtual environment..."
-python3.11 -m venv "$PROJECT_DIR/venv"
+python3 -m venv "$PROJECT_DIR/venv"
 source "$PROJECT_DIR/venv/bin/activate"
 
 echo "==> [4/6] Installing Python dependencies..."
