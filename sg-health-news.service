@@ -1,0 +1,27 @@
+[Unit]
+Description=SG Healthcare News MCP Server
+Documentation=https://github.com/YOUR_USERNAME/mcp_aws_news
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/mcp_aws_news
+ExecStart=/home/ubuntu/mcp_aws_news/venv/bin/python server.py
+Restart=always
+RestartSec=10
+
+# Load Gmail credentials from .env file
+EnvironmentFile=/home/ubuntu/mcp_aws_news/.env
+
+# Keep logs readable
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sg-health-news
+
+# Prevent runaway memory usage on t2.micro (1 GB RAM)
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

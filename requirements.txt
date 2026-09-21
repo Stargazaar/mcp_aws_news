@@ -1,0 +1,13 @@
+# SG Health News MCP Server — Python dependencies
+#
+# Install with:  pip install -r requirements.txt
+# On EC2:        source venv/bin/activate && pip install -r requirements.txt
+
+# MCP server framework (includes FastMCP, SSE transport, uvicorn)
+mcp[cli]>=1.1.0,<2.0.0
+
+# RSS feed parsing — no account or API key needed
+feedparser>=6.0.10,<7.0.0
+
+# Load .env file for local dev and EC2 credential management
+python-dotenv>=1.0.1,<2.0.0
