@@ -191,5 +191,5 @@ if __name__ == "__main__":
     mcp.settings.transport_security.enable_dns_rebinding_protection = False
 
     print(f"Starting SG Health News MCP server on port {port} ...")
-    print(f"Claude Desktop SSE URL: http://<EC2_PUBLIC_IP>:{port}/sse")
-    mcp.run(transport="sse")
+    print(f"Claude Desktop Connector URL: http://<EC2_PUBLIC_IP>:{port}/mcp")
+    mcp.run(transport="streamable-http")
