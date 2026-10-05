@@ -120,7 +120,7 @@ Click **Launch instance**. Wait ~60 seconds. Note down the **Public IPv4 address
 Open **PowerShell** (not Command Prompt):
 
 ```powershell
-$key = "C:\Users\limqi\.ssh\sg-health-news-key.pem"
+$key = "C:\Users\limqi\Desktop\sg-health-news-key.pem"
 icacls $key /inheritance:r /grant:r "$($env:USERNAME):(R)"
 ```
 
@@ -129,7 +129,7 @@ Without this step, SSH refuses the key with a "bad permissions" error.
 ### 3.2 Connect
 
 ```powershell
-ssh -i "C:\Users\limqi\.ssh\sg-health-news-key.pem" ubuntu@YOUR_EC2_PUBLIC_IP
+ssh -i "C:\Users\limqi\Desktop\sg-health-news-key.pem" ubuntu@YOUR_EC2_PUBLIC_IP
 ```
 
 Replace `YOUR_EC2_PUBLIC_IP` with the actual IP from step 2.5.
@@ -216,29 +216,56 @@ ss -tlnp | grep 8000
 
 Download from [claude.ai/download](https://claude.ai/download) and install.
 
-### 5.2 Edit the MCP config file
+### 5.2 Find the real config path
 
-Open this file in Notepad (create it if it does not exist):
-```
-C:\Users\limqi\AppData\Roaming\Claude\claude_desktop_config.json
+Claude Desktop on Windows reads from a virtualised path (not the obvious `%APPDATA%\Claude`).
+Check `main.log` to find the exact path:
+
+```powershell
+cat "$env:LOCALAPPDATA\Claude\logs\main.log" | Select-String "Reading claude_desktop_config"
 ```
 
-Paste:
-```json
-{
+The line will look like:
+```
+Reading claude_desktop_config.json from C:\Users\...\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json
+```
+
+Use that path in the next step.
+
+### 5.3 Write the MCP config
+
+Claude Desktop only supports **local stdio servers** via config — remote servers use `mcp-remote` as a local proxy.
+You need `Node.js` installed (`node --version` should return a version number).
+
+Run in PowerShell (replace the path and EC2 IP):
+
+```powershell
+$config = '{
   "mcpServers": {
     "sg-health-news": {
-      "url": "http://YOUR_EC2_PUBLIC_IP:8000/sse"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://YOUR_EC2_PUBLIC_IP:8000/mcp", "--allow-http"],
+      "env": {
+        "NODE_OPTIONS": "--use-system-ca"
+      }
     }
   }
-}
+}'
+[System.IO.File]::WriteAllText(
+  "C:\Users\USERNAME\AppData\Local\Packages\Claude_XXXXX\LocalCache\Roaming\Claude\claude_desktop_config.json",
+  $config
+)
 ```
 
-Replace `YOUR_EC2_PUBLIC_IP` with your instance's public IP.
+> **Notes**:
+> - `--allow-http` is required because mcp-remote blocks non-HTTPS URLs by default
+> - `NODE_OPTIONS: --use-system-ca` is required on corporate/enterprise networks with SSL inspection
+> - The transport is `streamable-http` and the endpoint is `/mcp` (not `/sse`)
 
-### 5.3 Restart Claude Desktop
+### 5.4 Restart Claude Desktop
 
-Fully quit and reopen Claude Desktop. In the bottom-left of the chat input you should see a small tools icon — clicking it shows your connected MCP server.
+Fully quit from the system tray (right-click → Quit — closing the window is not enough).
+Reopen it. After ~10 seconds, check **Settings → Developer** to confirm the server shows as connected.
 
 ---
 
