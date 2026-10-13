@@ -2,14 +2,14 @@
 server.py
 SG Healthcare News MCP Server
 
-Exposes four tools via the Model Context Protocol (SSE transport):
+Exposes four tools via the Model Context Protocol (streamable-http transport):
   - get_headlines        fetch & cache news from Google News RSS
   - send_digest_email    email top N headlines via Gmail SMTP
   - list_cached_queries  inspect the SQLite cache
   - clear_cache          wipe all cache entries
 
-Transport: HTTP/SSE on port 8000 (configurable via PORT env var)
-Claude Desktop connects to: http://<EC2_IP>:8000/sse
+Transport: streamable HTTP on port 8000 (configurable via PORT env var)
+Claude Desktop connects to: http://<EC2_IP>:8000/mcp
 """
 
 import os
@@ -119,7 +119,8 @@ def send_digest_email(
     if cached is not None:
         headlines = cached[:top_n]
     else:
-        headlines = news_fetcher.fetch_headlines(q, weeks_back, page_size=top_n)
+        # Cache the full 30 so a later get_headlines call isn't served a truncated list
+        headlines = news_fetcher.fetch_headlines(q, weeks_back, page_size=30)
         cache_store.set(key, q, headlines)
 
     if not headlines:
