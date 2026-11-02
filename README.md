@@ -57,7 +57,7 @@ mcp_aws_news/
 1. Create a new **public or private** repo on [github.com](https://github.com) named `mcp_aws_news`
 2. Push this project:
    ```powershell
-   cd "C:\Users\limqi\Desktop\Python\Projects\mcp_aws_news"
+   cd "C:\path\to\mcp_aws_news"
    git remote add origin https://github.com/Stargazaar/mcp_aws_news.git
    git push -u origin main
    ```
@@ -79,7 +79,7 @@ mcp_aws_news/
 | Setting | Value |
 |---|---|
 | Name | `sg-health-news-mcp` |
-| AMI | **Ubuntu Server 22.04 LTS** (Free tier eligible) |
+| AMI | **Ubuntu Server 24.04 LTS** (Free tier eligible) |
 | Architecture | 64-bit (x86) |
 | Instance type | **t2.micro** (Free tier: 750 hrs/month for 12 months) |
 | Key pair | Create new → see 2.3 below |
@@ -92,7 +92,7 @@ mcp_aws_news/
 3. Key pair type: **RSA**
 4. Private key file format: **.pem** (works with Windows OpenSSH)
 5. Click **Create key pair** — a `.pem` file downloads automatically
-6. Save it somewhere permanent, e.g. `C:\Users\limqi\.ssh\sg-health-news-key.pem`
+6. Save it somewhere permanent, e.g. `%USERPROFILE%\.ssh\sg-health-news-key.pem`
 
 ### 2.4 Configure security group
 
@@ -122,7 +122,7 @@ Click **Launch instance**. Wait ~60 seconds. Note down the **Public IPv4 address
 Open **PowerShell** (not Command Prompt):
 
 ```powershell
-$key = "C:\Users\limqi\Desktop\sg-health-news-key.pem"
+$key = "$env:USERPROFILE\.ssh\sg-health-news-key.pem"
 icacls $key /inheritance:r /grant:r "$($env:USERNAME):(R)"
 ```
 
@@ -131,7 +131,7 @@ Without this step, SSH refuses the key with a "bad permissions" error.
 ### 3.2 Connect
 
 ```powershell
-ssh -i "C:\Users\limqi\Desktop\sg-health-news-key.pem" ubuntu@YOUR_EC2_PUBLIC_IP
+ssh -i "$env:USERPROFILE\.ssh\sg-health-news-key.pem" ubuntu@YOUR_EC2_PUBLIC_IP
 ```
 
 Replace `YOUR_EC2_PUBLIC_IP` with the actual IP from step 2.5.
