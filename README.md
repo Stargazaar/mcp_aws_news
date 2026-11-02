@@ -57,7 +57,7 @@ mcp_aws_news/
 1. Create a new **public or private** repo on [github.com](https://github.com) named `mcp_aws_news`
 2. Push this project:
    ```powershell
-   cd "C:\Users\limqi\Desktop\Python\Projects\mcp_aws_news"
+   cd "C:\path\to\mcp_aws_news"
    git remote add origin https://github.com/Stargazaar/mcp_aws_news.git
    git push -u origin main
    ```
@@ -79,7 +79,7 @@ mcp_aws_news/
 | Setting | Value |
 |---|---|
 | Name | `sg-health-news-mcp` |
-| AMI | **Ubuntu Server 22.04 LTS** (Free tier eligible) |
+| AMI | **Ubuntu Server 24.04 LTS** (Free tier eligible) |
 | Architecture | 64-bit (x86) |
 | Instance type | **t2.micro** (Free tier: 750 hrs/month for 12 months) |
 | Key pair | Create new → see 2.3 below |
@@ -92,7 +92,7 @@ mcp_aws_news/
 3. Key pair type: **RSA**
 4. Private key file format: **.pem** (works with Windows OpenSSH)
 5. Click **Create key pair** — a `.pem` file downloads automatically
-6. Save it somewhere permanent, e.g. `C:\Users\limqi\.ssh\sg-health-news-key.pem`
+6. Save it somewhere permanent, e.g. `%USERPROFILE%\.ssh\sg-health-news-key.pem`
 
 ### 2.4 Configure security group
 
@@ -122,7 +122,7 @@ Click **Launch instance**. Wait ~60 seconds. Note down the **Public IPv4 address
 Open **PowerShell** (not Command Prompt):
 
 ```powershell
-$key = "C:\Users\limqi\Desktop\sg-health-news-key.pem"
+$key = "$env:USERPROFILE\.ssh\sg-health-news-key.pem"
 icacls $key /inheritance:r /grant:r "$($env:USERNAME):(R)"
 ```
 
@@ -131,7 +131,7 @@ Without this step, SSH refuses the key with a "bad permissions" error.
 ### 3.2 Connect
 
 ```powershell
-ssh -i "C:\Users\limqi\Desktop\sg-health-news-key.pem" ubuntu@YOUR_EC2_PUBLIC_IP
+ssh -i "$env:USERPROFILE\.ssh\sg-health-news-key.pem" ubuntu@YOUR_EC2_PUBLIC_IP
 ```
 
 Replace `YOUR_EC2_PUBLIC_IP` with the actual IP from step 2.5.
@@ -222,29 +222,32 @@ Download from [claude.ai/download](https://claude.ai/download) and install.
 
 ### 5.2 Find the real config path
 
-Claude Desktop on Windows reads from a virtualised path (not the obvious `%APPDATA%\Claude`).
-Check `main.log` to find the exact path:
+The config location has moved between Claude Desktop versions, and stale copies can be left
+behind in the old locations (`%APPDATA%\Claude\`, `%LOCALAPPDATA%\Claude\`,
+`%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\`). Editing a stale copy does nothing.
 
+**Reliable way:** Claude Desktop → **Settings → Developer → Edit Config**. That opens the file
+the app actually reads. On recent Windows installs it is:
+```
+%LOCALAPPDATA%\Claude-Data\claude_<id>\claude_desktop_config.json
+```
+
+To check from PowerShell which one is current (the newest is usually it):
 ```powershell
-cat "$env:LOCALAPPDATA\Claude\logs\main.log" | Select-String "Reading claude_desktop_config"
+Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter claude_desktop_config.json -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending | Select-Object LastWriteTime, FullName
 ```
-
-The line will look like:
-```
-Reading claude_desktop_config.json from C:\Users\...\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json
-```
-
-Use that path in the next step.
 
 ### 5.3 Write the MCP config
 
 Claude Desktop only supports **local stdio servers** via config — remote servers use `mcp-remote` as a local proxy.
 You need `Node.js` installed (`node --version` should return a version number).
 
-Run in PowerShell (replace the path, EC2 IP and token):
+Open the config from step 5.2 in a text editor. **Don't overwrite the whole file**: it also
+holds Claude Desktop's own `preferences`. Add or replace only the `mcpServers` entry
+(replace the EC2 IP and token):
 
-```powershell
-$config = '{
+```json
   "mcpServers": {
     "sg-health-news": {
       "command": "npx",
@@ -255,12 +258,7 @@ $config = '{
         "AUTH_HEADER": "Bearer YOUR_MCP_AUTH_TOKEN"
       }
     }
-  }
-}'
-[System.IO.File]::WriteAllText(
-  "C:\Users\USERNAME\AppData\Local\Packages\Claude_XXXXX\LocalCache\Roaming\Claude\claude_desktop_config.json",
-  $config
-)
+  },
 ```
 
 > **Notes**:
@@ -274,6 +272,16 @@ $config = '{
 
 Fully quit from the system tray (right-click → Quit — closing the window is not enough).
 Reopen it. After ~10 seconds, check **Settings → Developer** to confirm the server shows as connected.
+
+**Troubleshooting** (logs: Settings → Developer → sg-health-news, or
+`%LOCALAPPDATA%\Claude\logs\mcp-server-sg-health-news.log`):
+
+| Log shows | Cause | Fix |
+|---|---|---|
+| No `Using custom headers: Authorization` line | Claude Desktop is reading a different config file | Use **Edit Config** (step 5.2) and edit that file |
+| `Authentication required` **with** the custom headers line | Token doesn't match `.env` on EC2 | Re-copy it: `grep MCP_AUTH_TOKEN ~/mcp_aws_news/.env` |
+| `Another instance is running the sign-in for this server` | Leftover `mcp-remote` process from a failed attempt | Quit Claude Desktop, end leftover `node.exe` processes in Task Manager, reopen |
+| `Request timed out` / no response | Your public IP isn't allowed in the security group, or the instance is stopped | See Part 7 checklist |
 
 ---
 
@@ -307,12 +315,21 @@ That is enough to run it 24/7, but here is how to stop it when not using it:
 **Stop the instance** (data is preserved, no hourly charge):
 1. EC2 Console → Instances → select your instance → Instance state → **Stop**
 
-**Start it again**:
-- Instance state → **Start**
-- **Note**: the Public IP changes every time you start/stop. Update `claude_desktop_config.json` with the new IP.
+**Start it again — checklist.** Two different IPs can change:
 
-To get a fixed IP (optional, ~$3.60/month when running, free when attached to a running instance):
-- Elastic IP → Allocate → Associate with your instance
+1. **The EC2 IP changes on every stop/start.**
+   - EC2 Console → Instance state → **Start**, then copy the new **Public IPv4 address**.
+   - Update it in your SSH command and in the `http://...:8000/mcp` line of
+     `claude_desktop_config.json` (step 5.2), then fully quit and reopen Claude Desktop.
+2. **Your own public IP can change too** (different network, or an office network that rotates IPs).
+   - Symptom: SSH or Claude Desktop times out even though the instance is running.
+   - Check it with `curl.exe -s https://checkip.amazonaws.com`. If it isn't in the security group,
+     go to **Edit inbound rules → Add rule → Source: My IP** for ports 22 and 8000.
+
+**Fixed EC2 IP (optional):** Elastic IP → Allocate → Associate with your instance. Public IPv4
+costs ~$0.005/hr (~$3.60/month) either way. An Elastic IP is also billed while the instance is
+stopped, so it only makes sense if you keep the instance running.
+Release it (Elastic IPs → Release) when you're done with the project.
 
 ---
 
