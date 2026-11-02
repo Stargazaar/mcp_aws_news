@@ -10,8 +10,10 @@ Exposes four tools via the Model Context Protocol (streamable-http transport):
 
 Transport: streamable HTTP on port 8000 (configurable via PORT env var)
 Claude Desktop connects to: http://<EC2_IP>:8000/mcp
+Every request must carry 'Authorization: Bearer <MCP_AUTH_TOKEN>' (from .env).
 """
 
+import hmac
 import os
 from dotenv import load_dotenv
 
@@ -179,18 +181,56 @@ def clear_cache() -> str:
 # Entry point
 # ---------------------------------------------------------------------------
 
+class BearerAuthMiddleware:
+    """
+    Pure ASGI middleware that rejects any HTTP request without
+    'Authorization: Bearer <MCP_AUTH_TOKEN>'. Pure ASGI (not BaseHTTPMiddleware)
+    so streamed MCP responses pass through untouched.
+    """
+
+    def __init__(self, app, token: str):
+        self.app = app
+        self.expected = f"Bearer {token}".encode()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            supplied = headers.get(b"authorization", b"")
+            if not hmac.compare_digest(supplied, self.expected):
+                await send({
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"text/plain"),
+                                (b"www-authenticate", b"Bearer")],
+                })
+                await send({"type": "http.response.body", "body": b"Unauthorized"})
+                return
+        await self.app(scope, receive, send)
+
+
 if __name__ == "__main__":
+    import uvicorn
+
     port = int(os.environ.get("PORT", 8000))
 
-    # Bind to all interfaces so Claude Desktop can reach us over the public internet.
-    # Default is 127.0.0.1 (localhost only) which blocks external connections.
-    mcp.settings.host = "0.0.0.0"
-    mcp.settings.port = port
+    # Fail closed: the server is exposed on a public IP and can send email
+    # from your Gmail account, so never run it without a token.
+    token = os.environ.get("MCP_AUTH_TOKEN", "").strip()
+    if len(token) < 32:
+        raise SystemExit(
+            "MCP_AUTH_TOKEN is missing or shorter than 32 characters. "
+            "Generate one with: python3 -c \"import secrets; print(secrets.token_urlsafe(32))\" "
+            "and add it to .env (see .env.example)."
+        )
 
     # DNS rebinding protection defaults to localhost-only allowed hosts.
     # Disable it so Claude Desktop connecting via EC2 public IP is accepted.
+    # (A browser-based rebinding attack can't supply the bearer token anyway.)
     mcp.settings.transport_security.enable_dns_rebinding_protection = False
+
+    app = BearerAuthMiddleware(mcp.streamable_http_app(), token)
 
     print(f"Starting SG Health News MCP server on port {port} ...")
     print(f"Claude Desktop Connector URL: http://<EC2_PUBLIC_IP>:{port}/mcp")
-    mcp.run(transport="streamable-http")
+    # Bind to all interfaces so Claude Desktop can reach us over the public internet.
+    uvicorn.run(app, host="0.0.0.0", port=port)
