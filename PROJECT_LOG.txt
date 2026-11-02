@@ -1,0 +1,399 @@
+================================================================================
+PROJECT LOG — SG Healthcare News MCP Server
+================================================================================
+Started:      October 2026
+Author:       Stargazaar
+GitHub:       https://github.com/Stargazaar/mcp_aws_news
+Status:       WORKING (as of 2026-11-02, with bearer token auth)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. PROJECT GOAL
+--------------------------------------------------------------------------------
+
+Learning project covering:
+  - AWS EC2: launch, key pairs, security groups, SSH
+  - Ubuntu Linux: systemd service management, journalctl
+  - Python: modular project structure, venv, .env, RSS parsing, SQLite, SMTP
+  - MCP (Model Context Protocol): expose Python functions as Claude Desktop tools
+  - Git/GitHub: version control, push to remote, pull on EC2
+
+Constraints:
+  - Cheap (free tier where possible, stop instance when idle)
+  - No paid APIs, no accounts required for news data
+  - Use SQLite, not Redis
+  - Python suitable for a GitHub portfolio
+
+
+--------------------------------------------------------------------------------
+2. WHAT WAS BUILT
+--------------------------------------------------------------------------------
+
+A Python MCP server deployed on AWS EC2 that:
+  1. Fetches Singapore healthcare headlines from Google News RSS (no API key)
+  2. Caches results in SQLite for 1 hour to avoid hammering the feed
+  3. Optionally sends an HTML email digest via Gmail SMTP
+  4. Exposes all of this to Claude Desktop through the MCP protocol
+
+Claude Desktop connects via mcp-remote (a local Node.js bridge) and can call
+the server's tools in natural language during conversation.
+
+
+--------------------------------------------------------------------------------
+3. ARCHITECTURE
+--------------------------------------------------------------------------------
+
+  Windows PC
+  +-----------------------------------------+
+  |  Claude Desktop                         |
+  |    |                                    |
+  |  mcp-remote (npx, local Node process)  |
+  |    | HTTP (port 8000) + bearer token    |
+  +----|------------------------------------|
+       |
+       v (internet)
+  AWS EC2 t2.micro  (Ubuntu 24.04 LTS, ap-southeast-2 Sydney)
+  +-----------------------------------------+
+  |  systemd: sg-health-news.service        |
+  |    |                                    |
+  |  server.py  (FastMCP + auth middleware) |
+  |    |- get_headlines()                   |
+  |    |- send_digest_email()               |
+  |    |- list_cached_queries()             |
+  |    |- clear_cache()                     |
+  |    |                                    |
+  |  news_fetcher.py  (feedparser, RSS)     |
+  |  cache.py         (SQLite TTL cache)    |
+  |  email_sender.py  (Gmail SMTP)          |
+  |  .env             (credentials + token, |
+  |                    not in Git)         |
+  +-----------------------------------------+
+       |                    |
+  Google News RSS        Gmail SMTP --> inbox
+  CNA RSS
+
+
+--------------------------------------------------------------------------------
+4. FILE STRUCTURE
+--------------------------------------------------------------------------------
+
+mcp_aws_news/
+  server.py               FastMCP entry point, 4 MCP tool definitions
+  news_fetcher.py         Google News + CNA RSS parser (feedparser)
+  cache.py                SQLite TTL cache (1-hour expiry)
+  email_sender.py         Gmail SMTP HTML digest sender
+  requirements.txt        mcp[cli], feedparser, python-dotenv
+  .env.example            Template for Gmail credentials
+  .gitignore              Excludes .env, cache.db, venv/, __pycache__/
+  setup.sh                One-shot EC2 bootstrap script
+  sg-health-news.service  systemd unit file
+  README.md               Step-by-step setup guide
+  CLAUDE.md               Project rules + code review priorities for Claude
+  .github/workflows/      Claude PR review + PR assistant GitHub Actions
+  PROJECT_LOG.txt         This file
+
+
+--------------------------------------------------------------------------------
+5. EC2 INSTANCE DETAILS
+--------------------------------------------------------------------------------
+
+  Instance type:  t2.micro
+  OS:             Ubuntu Server 24.04 LTS (HVM, SSD, 64-bit x86)
+  Region:         ap-southeast-2 (Sydney)
+  Storage:        8 GiB gp3
+  Key pair:       <KEY_NAME>.pem
+  Key location:   %USERPROFILE%\.ssh\<KEY_NAME>.pem
+  Security group inbound rules (security group: launch-wizard-1):
+    SSH      port 22    <YOUR_PUBLIC_IP>/32   (one rule per network you use)
+    TCP      port 8000  <YOUR_PUBLIC_IP>/32   (one rule per network you use)
+  (A leftover MSSQL port 1433 rule from a first launch attempt was deleted.)
+
+  SSH command:
+    ssh -i "%USERPROFILE%\.ssh\<KEY_NAME>.pem" ubuntu@<EC2_PUBLIC_IP>
+
+  NOTE: Two IPs can change:
+    - The EC2 public IP changes on every stop/start. Update the SSH command and
+      the Claude Desktop config with the new one.
+    - Your own public IP can change (other network, or an office network that
+      rotates IPs). Check with: curl.exe -s https://checkip.amazonaws.com
+      If it's not in the security group, add a rule with Source: My IP.
+
+
+--------------------------------------------------------------------------------
+6. DEPLOYMENT (EC2 SIDE)
+--------------------------------------------------------------------------------
+
+  Service file:   /etc/systemd/system/sg-health-news.service
+  Working dir:    /home/ubuntu/mcp_aws_news/
+  Python venv:    /home/ubuntu/mcp_aws_news/venv/
+  Credentials:    /home/ubuntu/mcp_aws_news/.env
+
+  Useful commands (run inside SSH session):
+
+    sudo systemctl restart sg-health-news     restart the service
+    sudo systemctl status sg-health-news      check if running
+    sudo systemctl stop sg-health-news        stop the service
+    sudo journalctl -u sg-health-news -n 50 --no-pager   last 50 log lines
+    sudo journalctl -u sg-health-news -f      live log tail
+    ss -tlnp | grep 8000                      confirm port is listening
+
+  After a git pull to update code:
+    cd ~/mcp_aws_news
+    git pull
+    source venv/bin/activate
+    pip install -r requirements.txt           (only if requirements changed)
+    sudo systemctl restart sg-health-news
+
+  Or simply re-run setup (also creates MCP_AUTH_TOKEN if missing):
+    bash setup.sh                             (bash, so no chmod +x is needed)
+
+  Show the auth token:
+    grep MCP_AUTH_TOKEN ~/mcp_aws_news/.env
+
+  Health check (401 = running and rejecting requests without the token):
+    curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8000/mcp
+
+
+--------------------------------------------------------------------------------
+7. CLAUDE DESKTOP CONFIGURATION (WINDOWS)
+--------------------------------------------------------------------------------
+
+  Config file path (current Claude Desktop versions):
+    %LOCALAPPDATA%\Claude-Data\claude_<id>\claude_desktop_config.json
+  Easiest way to open the right one: Settings -> Developer -> Edit Config.
+  Older copies under %APPDATA%\Claude\ and %LOCALAPPDATA%\Packages\Claude_*\
+  are no longer read. Editing them does nothing.
+  The file also holds Claude Desktop's own "preferences". Edit only the
+  "mcpServers" entry; never overwrite the whole file.
+
+  mcpServers entry (replace IP after every EC2 stop/start):
+
+    "mcpServers": {
+      "sg-health-news": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "mcp-remote",
+          "http://<EC2_PUBLIC_IP>:8000/mcp",
+          "--allow-http",
+          "--header",
+          "Authorization:${AUTH_HEADER}"
+        ],
+        "env": {
+          "NODE_OPTIONS": "--use-system-ca",
+          "AUTH_HEADER": "Bearer <MCP_AUTH_TOKEN from .env on EC2>"
+        }
+      }
+    }
+
+  Flags explained:
+    --allow-http        mcp-remote blocks non-HTTPS URLs by default; this overrides
+    --use-system-ca     corporate SSL inspection uses a company CA not trusted by
+                        Node.js by default; this makes Node use the Windows cert store
+    --header            sends the bearer token. The value comes from env because
+                        Windows mangles spaces inside args, so there's no space
+                        after "Authorization:"
+
+  After editing the config:
+    Fully quit Claude Desktop (system tray -> right-click -> Quit)
+    Reopen it
+    Check Settings -> Developer to confirm "sg-health-news" shows as connected
+
+
+--------------------------------------------------------------------------------
+8. MCP TOOLS (WHAT CLAUDE CAN DO)
+--------------------------------------------------------------------------------
+
+  get_headlines(q, weeks_back, page_size)
+    Fetch headlines matching a query. Results cached for 1 hour in SQLite.
+    Example: "Get me MOH Singapore news from the past 2 weeks"
+
+  send_digest_email(to_email, q, weeks_back, top_n)
+    Send top N headlines as an HTML email digest via Gmail.
+    Requires GMAIL_USER and GMAIL_APP_PASSWORD set in .env on EC2.
+    Example: "Send a digest of the top 5 healthcare headlines to me@email.com"
+
+  list_cached_queries()
+    Show what's in the SQLite cache, when it was fetched, and how old it is.
+
+  clear_cache()
+    Wipe all cache entries so the next get_headlines call fetches fresh data.
+
+
+--------------------------------------------------------------------------------
+9. COST MANAGEMENT
+--------------------------------------------------------------------------------
+
+  While RUNNING:
+    EC2 compute:       Free (750 hrs/month, 12-month free tier) -> ~$0.012/hr after
+    Public IPv4:       $0.005/hr = ~$3.60/month  (NOT covered by free tier)
+    EBS 8GB storage:   Free (12-month free tier) -> ~$0.64/month after
+    Data transfer:     ~$0 for light use
+
+  While STOPPED:
+    EC2 compute:       $0
+    Public IPv4:       $0 (IP is released when stopped)
+    EBS storage:       Same as above (storage persists, still billed after free tier)
+
+  Recommendation for a learning project:
+    Stop the instance via EC2 Console -> Instances -> Instance state -> Stop
+    when you are not actively using the MCP server.
+    Start it again when needed; note the new public IP and update the config.
+
+  To check actual costs:
+    AWS Console -> Billing -> Bills -> expand current month by service
+
+
+--------------------------------------------------------------------------------
+10. ERRORS ENCOUNTERED AND FIXES
+--------------------------------------------------------------------------------
+
+  ERROR: Microsoft SQL Server is not supported for t2.micro
+  FIX:   Selected Ubuntu Server 24.04 LTS AMI instead of a Marketplace AMI
+
+  ERROR: E: Unable to locate package python3.11
+  FIX:   Ubuntu 24.04 ships Python 3.12; updated setup.sh to use python3 / python3-venv
+
+  ERROR: error: src refspec main does not match any
+  FIX:   Local branch was 'master'; renamed with git branch -m main; pushed main
+
+  ERROR: fatal: not a git repository
+  FIX:   Was running git in wrong directory; moved to mcp_aws_news/
+
+  ERROR: Password authentication is not supported
+  FIX:   GitHub dropped password auth for Git; made repo public for HTTPS clone
+
+  ERROR: error: Your local changes would be overwritten by merge (setup.sh)
+  FIX:   git checkout setup.sh then git pull
+
+  ERROR: -bash: ./setup.sh: Permission denied
+  FIX:   chmod +x setup.sh
+
+  ERROR: Sudo is disabled on this machine (PowerShell)
+  FIX:   systemctl commands must be run inside the EC2 SSH session, not locally
+
+  ERROR: Connection timed out (SSH)
+  FIX:   The EC2 IP had been mistyped (one digit missing)
+
+  ERROR: UNABLE_TO_VERIFY_LEAF_SIGNATURE (npm/npx)
+  FIX:   Added NODE_OPTIONS: --use-system-ca to Claude Desktop config
+         (corporate SSL inspection intercepts HTTPS with a company certificate)
+
+  ERROR: Non-HTTPS URLs are only allowed for localhost or when --allow-http flag is provided
+  FIX:   Added --allow-http to mcp-remote args in Claude Desktop config
+
+  ERROR: Claude Desktop shows "not responding" / keeps restarting
+  FIX:   Was caused by the SSL + HTTP errors above; both flags fixed it
+
+  ERROR: Transport mismatch (SSE vs Streamable HTTP)
+  FIX:   Changed mcp.run(transport="sse") to mcp.run(transport="streamable-http")
+         Endpoint changed from /sse to /mcp
+
+  --- 2026-11-02: security lockdown + duplicates fix (PR #3, PR #4) ---
+
+  ISSUE: Port 8000 open to the internet with no auth; anyone could call
+         send_digest_email and send mail from the Gmail account
+  FIX:   server.py requires "Authorization: Bearer <MCP_AUTH_TOKEN>" and
+         refuses to start without a token. setup.sh generates the token.
+         Security group rules changed from 0.0.0.0/0 to My IP.
+
+  ISSUE: Duplicate headlines (same CNA story twice)
+  FIX:   Google News appends " - <Source>" to titles, but the CNA feed doesn't.
+         news_fetcher.py strips the suffix and dedupes on a normalised title.
+
+  ERROR: SSH Connection timed out after restricting the security group
+  FIX:   The office network's public IP had changed; added a second
+         My IP rule for ports 22 and 8000
+
+  ERROR: git pull: "Your local changes would be overwritten" (setup.sh)
+  CAUSE: Only a file-mode change from chmod +x (git diff showed old/new mode)
+  FIX:   git checkout setup.sh, git pull, then run it as: bash setup.sh
+
+  ERROR: Claude Desktop: "Authentication required. Waiting for authorization..."
+         then "Request timed out"
+  CAUSE: Claude Desktop had moved its config to %LOCALAPPDATA%\Claude-Data\...
+         The edited copy was a stale one, so --header was never sent and
+         mcp-remote fell back to an OAuth sign-in that never completes
+  FIX:   Edited the live config (Settings -> Developer -> Edit Config).
+         Clue: the log lacked "Using custom headers: Authorization"
+
+  ERROR: "Another instance is running the sign-in for this server on port 4385"
+  CAUSE: Leftover mcp-remote node.exe processes from the failed sign-in
+  FIX:   Quit Claude Desktop, ended the leftover node.exe processes, reopened
+
+
+--------------------------------------------------------------------------------
+11. KEY CONCEPTS LEARNED
+--------------------------------------------------------------------------------
+
+  MCP vs Cron:
+    MCP is for INTERACTIVE use — Claude calls tools during a conversation.
+    Cron/systemd timers are for SCHEDULED automation (no human in the loop).
+    A weekly email digest does not need MCP; a cron job is more appropriate.
+    This project uses MCP so analysts can query news interactively with Claude.
+
+  SSE vs Streamable HTTP:
+    SSE (Server-Sent Events) was the original MCP transport.
+    Streamable HTTP is the current standard; Claude Desktop now expects it.
+    Endpoint: /mcp (not /sse)
+
+  mcp-remote:
+    A local Node.js proxy that bridges Claude Desktop (which only supports local
+    stdio servers via config) to a remote HTTP MCP server.
+    Installed automatically by npx on first use.
+
+  SQLite cache:
+    Avoids hammering the Google News RSS feed on every Claude query.
+    Entries expire after 1 hour; the next call fetches fresh data.
+    No Redis or external service needed.
+
+  systemd service:
+    Keeps the MCP server running after SSH disconnects and restarts it on crash.
+    Logs are captured by journald and readable with journalctl.
+
+  Public IP changes:
+    EC2 auto-assigned IPs are released when the instance stops.
+    A new IP is assigned on start. Claude Desktop config must be updated each time.
+    Elastic IP provides a fixed address, but it's billed ~$0.005/hr even while
+    the instance is stopped.
+
+  Security groups vs app auth:
+    Security group = network firewall (which IPs can reach a port).
+    Bearer token   = app-level check (who can use the server once reached).
+    Use both: My IP rules can break when your IP changes, and the token
+    still protects the server if a port is left open.
+
+  Token usage with MCP:
+    The RSS fetching/dedup/caching runs on EC2 and costs no tokens.
+    Claude still spends tokens reading tool descriptions, reading the tool's
+    result (the biggest part), and writing its reply. Ask for fewer results
+    and start new chats to keep it small.
+
+
+--------------------------------------------------------------------------------
+12. FUTURE IDEAS (NOT YET IMPLEMENTED)
+--------------------------------------------------------------------------------
+
+  Done:
+  - [x] Restrict security group to My IP instead of 0.0.0.0/0 (2026-11-02)
+  - [x] Bearer token auth on port 8000 (2026-11-02)
+  - [x] CNA RSS integrated as a second feed source alongside Google News
+  - [x] Duplicate headlines across feeds fixed (2026-11-02)
+
+  To do:
+  - AWS Budget alert ($5/month; alerts at $1 actual, $5 actual, $5 forecasted)
+  - HTTPS via Caddy + Let's Encrypt (removes need for --allow-http; the token
+    is currently sent over plain HTTP)
+  - HTML-escape headline text in email_sender.py
+  - Compact tool output option (e.g. omit long Google News links) to save tokens
+  - send_digest.py standalone script + cron job for automated weekly email
+  - Elastic IP for a fixed address (eliminates config updates after restart)
+  - Additional MCP tools: compare_weeks(), sentiment_summary(), filter_by_source()
+  - When the project is finished: terminate the instance (deletes the EBS
+    volume too) and release any Elastic IP
+
+
+================================================================================
+END OF LOG
+================================================================================
