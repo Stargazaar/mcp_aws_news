@@ -5,6 +5,7 @@ No API key or account required — uses public RSS feeds only.
 """
 
 import datetime
+import re
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -34,6 +35,21 @@ def _parse_date(entry) -> Optional[datetime.datetime]:
         except (TypeError, ValueError):
             pass
     return None
+
+
+def _strip_source_suffix(title: str, source: str) -> str:
+    """Google News appends ' - <Source>' to titles; remove it."""
+    suffix = f" - {source}"
+    if source and title.endswith(suffix):
+        return title[: -len(suffix)].strip()
+    return title
+
+
+def _dedupe_key(title: str) -> str:
+    """Normalise a title so cosmetic differences don't defeat deduplication."""
+    title = re.sub(r"[‘’“”'\"]", "", title.lower())
+    title = re.sub(r"[^\w]+", " ", title)
+    return title.strip()
 
 
 def _fetch_feed(url: str) -> list:
@@ -70,20 +86,22 @@ def fetch_headlines(
     # --- Source 1: Google News RSS (primary) ---
     google_url = GOOGLE_NEWS_RSS.format(q=quote_plus(q))
     for entry in _fetch_feed(google_url):
-        title = entry.get("title", "").strip()
-        if not title or title.lower() in seen_titles:
+        source = entry.get("source", {}).get("title", "Google News")
+        title = _strip_source_suffix(entry.get("title", "").strip(), source)
+        key = _dedupe_key(title)
+        if not key or key in seen_titles:
             continue
 
         pub = _parse_date(entry)
         if pub and pub < cutoff:
             continue  # older than requested window
 
-        seen_titles.add(title.lower())
+        seen_titles.add(key)
         results.append({
             "title": title,
             "link": entry.get("link", ""),
             "published": pub.strftime("%Y-%m-%d") if pub else "unknown",
-            "source": entry.get("source", {}).get("title", "Google News"),
+            "source": source,
         })
 
     # --- Source 2: CNA Singapore (secondary, health-tagged articles only) ---
@@ -91,7 +109,8 @@ def fetch_headlines(
                        "healthcare", "disease", "vaccine", "polyclinic", "mhc"}
     for entry in _fetch_feed(CNA_SG_RSS):
         title = entry.get("title", "").strip()
-        if not title or title.lower() in seen_titles:
+        key = _dedupe_key(title)
+        if not key or key in seen_titles:
             continue
         # Only keep CNA entries that mention a health keyword
         if not any(kw in title.lower() for kw in health_keywords):
@@ -101,7 +120,7 @@ def fetch_headlines(
         if pub and pub < cutoff:
             continue
 
-        seen_titles.add(title.lower())
+        seen_titles.add(key)
         results.append({
             "title": title,
             "link": entry.get("link", ""),

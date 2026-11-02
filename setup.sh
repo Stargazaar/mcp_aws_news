@@ -39,6 +39,16 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
     echo ""
 fi
 
+# Generate an MCP auth token if .env doesn't have one yet (also covers older installs)
+if ! grep -qE '^MCP_AUTH_TOKEN=.{32,}' "$PROJECT_DIR/.env"; then
+    TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+    sed -i '/^MCP_AUTH_TOKEN=/d' "$PROJECT_DIR/.env"
+    echo "MCP_AUTH_TOKEN=$TOKEN" >> "$PROJECT_DIR/.env"
+    echo "  Generated MCP_AUTH_TOKEN in .env. Put it in your Claude Desktop config:"
+    echo "    $TOKEN"
+fi
+chmod 600 "$PROJECT_DIR/.env"
+
 echo "==> [6/6] Installing and enabling systemd service..."
 sudo cp "$PROJECT_DIR/sg-health-news.service" /etc/systemd/system/
 # Patch the service file with the actual home directory path
@@ -52,5 +62,5 @@ echo "======================================================"
 echo " Setup complete!"
 echo " Service status:  sudo systemctl status $SERVICE_NAME"
 echo " Live logs:       sudo journalctl -u $SERVICE_NAME -f"
-echo " MCP SSE URL:     http://$(curl -s ifconfig.me):8000/sse"
+echo " MCP URL:         http://$(curl -s ifconfig.me):8000/mcp"
 echo "======================================================"
